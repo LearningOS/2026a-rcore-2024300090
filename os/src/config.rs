@@ -14,6 +14,9 @@ pub const MAX_APP_NUM: usize = 16;
 pub const APP_BASE_ADDRESS: usize = 0x80400000;
 /// size limit of app
 pub const APP_SIZE_LIMIT: usize = 0x20000;
+/// the max syscall id + 1 (for counting syscall times)
+pub const MAX_SYSCALL_NUM: usize = 500;
+
 
 /// clock frequency
 pub const CLOCK_FREQ: usize = 12500000;
