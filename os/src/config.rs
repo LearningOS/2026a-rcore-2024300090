@@ -21,3 +21,7 @@ pub const TRAP_CONTEXT_BASE: usize = TRAMPOLINE - PAGE_SIZE;
 pub const CLOCK_FREQ: usize = 12500000;
 /// the physical memory end
 pub const MEMORY_END: usize = 0x88000000;
+/// the max syscall id + 1 (for counting syscall times)
+pub const MAX_SYSCALL_NUM: usize = 500;
+/// the big stride for stride scheduling
+pub const BIG_STRIDE: usize = 1 << 20;

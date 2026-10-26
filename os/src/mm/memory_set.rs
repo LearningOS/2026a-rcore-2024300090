@@ -72,6 +72,41 @@ impl MemorySet {
             self.areas.remove(idx);
         }
     }
+    
+    /// map a new area, return false if overlapping existing areas
+    pub fn mmap_area(
+        &mut self,
+        start_va: VirtAddr,
+        end_va: VirtAddr,
+        permission: MapPermission,
+    ) -> bool {
+        let start_vpn = start_va.floor();
+        let end_vpn = end_va.ceil();
+        for area in self.areas.iter() {
+            if start_vpn < area.vpn_range.get_end() && area.vpn_range.get_start() < end_vpn {
+                return false; // overlaps with existing area
+            }
+        }
+        self.insert_framed_area(start_va, end_va, permission);
+        true
+    }
+
+    /// unmap a whole area, only exact start & end (page-aligned range) match is allowed
+    pub fn munmap_area(&mut self, start_va: VirtAddr, end_va: VirtAddr) -> bool {
+        let start_vpn = start_va.floor();
+        let end_vpn = end_va.ceil();
+        if let Some(idx) = self.areas.iter().position(|area| {
+            area.vpn_range.get_start() == start_vpn && area.vpn_range.get_end() == end_vpn
+        }) {
+            self.areas[idx].unmap(&mut self.page_table);
+            self.areas.remove(idx);
+            true
+        } else {
+            false
+        }
+    }
+
+
     /// Add a new MapArea into this MemorySet.
     /// Assuming that there are no conflicts in the virtual address
     /// space.

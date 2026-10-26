@@ -22,6 +22,8 @@ mod switch;
 mod task;
 
 use crate::loader::get_app_data_by_name;
+use crate::config::MAX_SYSCALL_NUM;
+use crate::mm::{MapPermission, VirtAddr};
 use alloc::sync::Arc;
 use lazy_static::*;
 pub use manager::{fetch_task, TaskManager};
@@ -35,6 +37,40 @@ pub use processor::{
     current_task, current_trap_cx, current_user_token, run_tasks, schedule, take_current_task,
     Processor,
 };
+/// increment syscall count of current task
+pub fn increment_syscall_count(syscall_id: usize) {
+    let task = current_task().unwrap();
+    let mut inner = task.inner_exclusive_access();
+    if syscall_id < MAX_SYSCALL_NUM {
+        inner.syscall_times[syscall_id] += 1;
+    }
+}
+
+/// get syscall count of current task
+pub fn get_syscall_count(syscall_id: usize) -> usize {
+    let task = current_task().unwrap();
+    let inner = task.inner_exclusive_access();
+    if syscall_id < MAX_SYSCALL_NUM {
+        inner.syscall_times[syscall_id]
+    } else {
+        0
+    }
+}
+
+/// current task's memory_set mmap
+pub fn current_memory_set_mmap(start_va: VirtAddr, end_va: VirtAddr, perm: MapPermission) -> bool {
+    let task = current_task().unwrap();
+    let mut inner = task.inner_exclusive_access();
+    inner.memory_set.mmap_area(start_va, end_va, perm)
+}
+
+/// current task's memory_set munmap
+pub fn current_memory_set_munmap(start_va: VirtAddr, end_va: VirtAddr) -> bool {
+    let task = current_task().unwrap();
+    let mut inner = task.inner_exclusive_access();
+    inner.memory_set.munmap_area(start_va, end_va)
+}
+
 /// Suspend the current 'Running' task and run the next task in task list.
 pub fn suspend_current_and_run_next() {
     // There must be an application running.
