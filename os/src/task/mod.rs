@@ -14,6 +14,8 @@ mod switch;
 #[allow(clippy::module_inception)]
 mod task;
 
+use crate::config::MAX_SYSCALL_NUM;
+use crate::mm::{MapPermission, VirtAddr};
 use crate::loader::{get_app_data, get_num_app};
 use crate::sync::UPSafeCell;
 use crate::trap::TrapContext;
@@ -201,4 +203,39 @@ pub fn current_trap_cx() -> &'static mut TrapContext {
 /// Change the current 'Running' task's program break
 pub fn change_program_brk(size: i32) -> Option<usize> {
     TASK_MANAGER.change_current_program_brk(size)
+}
+
+/// Increment the syscall count of current task
+pub fn increment_syscall_count(syscall_id: usize) {
+    let mut inner = TASK_MANAGER.inner.exclusive_access();
+    let current = inner.current_task;
+    if syscall_id < MAX_SYSCALL_NUM {
+        inner.tasks[current].syscall_times[syscall_id] += 1;
+    }
+}
+
+/// Get the syscall count of current task
+pub fn get_syscall_count(syscall_id: usize) -> usize {
+    let inner = TASK_MANAGER.inner.exclusive_access();
+    let current = inner.current_task;
+    if syscall_id < MAX_SYSCALL_NUM {
+        inner.tasks[current].syscall_times[syscall_id]
+    } else {
+        0
+    }
+}
+
+
+/// mmap a new area in current task's memory set
+pub fn current_memory_set_mmap(start_va: VirtAddr, end_va: VirtAddr, perm: MapPermission) -> bool {
+    let mut inner = TASK_MANAGER.inner.exclusive_access();
+    let current = inner.current_task;
+    inner.tasks[current].memory_set.mmap_area(start_va, end_va, perm)
+}
+
+/// munmap an area in current task's memory set
+pub fn current_memory_set_munmap(start_va: VirtAddr, end_va: VirtAddr) -> bool {
+    let mut inner = TASK_MANAGER.inner.exclusive_access();
+    let current = inner.current_task;
+    inner.tasks[current].memory_set.munmap_area(start_va, end_va)
 }
