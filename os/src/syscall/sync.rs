@@ -1,7 +1,7 @@
-use crate::sync::{Condvar, Mutex, MutexBlocking, MutexSpin, Semaphore};
+use crate::sync::{Condvar, ENABLE_DEADLOCK_DETECT, Mutex, MutexBlocking, MutexSpin, Semaphore};
 use crate::task::{block_current_and_run_next, current_process, current_task};
 use crate::timer::{add_timer, get_time_ms};
-use alloc::sync::Arc;
+use alloc::{sync::Arc, vec::Vec};
 /// sleep syscall
 pub fn sys_sleep(ms: usize) -> isize {
     trace!(
@@ -73,8 +73,12 @@ pub fn sys_mutex_lock(mutex_id: usize) -> isize {
     let mutex = Arc::clone(process_inner.mutex_list[mutex_id].as_ref().unwrap());
     drop(process_inner);
     drop(process);
-    mutex.lock();
-    0
+    if mutex.lock(){
+        0
+    } else {
+        -0xdead
+    }
+    
 }
 /// mutex unlock syscall
 pub fn sys_mutex_unlock(mutex_id: usize) -> isize {
@@ -165,6 +169,20 @@ pub fn sys_semaphore_down(sem_id: usize) -> isize {
     let process = current_process();
     let process_inner = process.inner_exclusive_access();
     let sem = Arc::clone(process_inner.semaphore_list[sem_id].as_ref().unwrap());
+    // deadlock detection before blocking
+    if *ENABLE_DEADLOCK_DETECT.exclusive_access() {
+        let cur_tid = current_task()
+            .unwrap()
+            .inner_exclusive_access()
+            .res
+            .as_ref()
+            .unwrap()
+            .tid;
+        if sem_deadlock(&process_inner.semaphore_list, sem_id, cur_tid) {
+            return -0xdead;
+        }
+    }
+
     drop(process_inner);
     sem.down();
     0
@@ -245,7 +263,69 @@ pub fn sys_condvar_wait(condvar_id: usize, mutex_id: usize) -> isize {
 /// enable deadlock detection syscall
 ///
 /// YOUR JOB: Implement deadlock detection, but might not all in this syscall
-pub fn sys_enable_deadlock_detect(_enabled: usize) -> isize {
-    trace!("kernel: sys_enable_deadlock_detect NOT IMPLEMENTED");
-    -1
+pub fn sys_enable_deadlock_detect(enabled: usize) -> isize {
+    trace!("kernel: sys_enable_deadlock_detect");
+    *ENABLE_DEADLOCK_DETECT.exclusive_access() = enabled == 1;
+    0
 }
+/// whether `tid` is waiting on some semaphore; return the sem id if so
+fn waiting_sem(sems: &[Option<Arc<Semaphore>>], tid: usize) -> Option<usize> {
+    for (id, s) in sems.iter().enumerate() {
+        if let Some(s) = s {
+            if s.waiters().contains(&tid) {
+                return Some(id);
+            }
+        }
+    }
+    None
+}
+/// detect a circular wait starting from `cur_tid` waiting on `target_sem`
+fn sem_deadlock(sems: &[Option<Arc<Semaphore>>], target_sem: usize, cur_tid: usize) -> bool {
+    fn dfs(
+        sems: &[Option<Arc<Semaphore>>],
+        sem_id: usize,
+        root_sem: usize,
+        cur_tid: usize,
+        visited: &mut Vec<usize>,
+    ) -> bool {
+        if visited.contains(&sem_id) {
+            return false;
+        }
+        visited.push(sem_id);
+        let holders = sems[sem_id].as_ref().unwrap().holders();
+        if holders.is_empty() {
+            return false;
+        }
+        // the main thread (tid 0) will release what it holds -> no deadlock
+        if holders.contains(&0) {
+            return false;
+        }
+        // every holder other than the current thread must be waiting for a
+        // real resource; waiting on the barrier (sem 0) means it will be
+        // released soon, so it does not count as a waiting holder
+        if holders
+            .iter()
+            .any(|h| *h != cur_tid && waiting_sem(sems, *h).map_or(true, |s| s == 0))
+        {
+            return false;
+        }
+        // circular wait closed at the current thread: the closed semaphore
+        // must differ from the one the current thread is waiting on
+        if holders.contains(&cur_tid) {
+            return sem_id != root_sem;
+        }
+        for h in holders.iter() {
+            if *h == cur_tid {
+                continue;
+            }
+            if dfs(sems, waiting_sem(sems, *h).unwrap(), root_sem, cur_tid, visited) {
+                return true;
+            }
+        }
+        false
+    }
+    let mut visited = Vec::new();
+    dfs(sems, target_sem, target_sem, cur_tid, &mut visited)
+}
+
+
