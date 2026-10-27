@@ -120,3 +120,20 @@ lazy_static! {
 pub fn add_initproc() {
     add_task(INITPROC.clone());
 }
+/// bridge: current task's memory_set mmap
+pub fn current_memory_set_mmap(
+    start_va: crate::mm::VirtAddr,
+    end_va: crate::mm::VirtAddr,
+    perm: crate::mm::MapPermission,
+) -> bool {
+    let task = current_task().unwrap();
+    let mut inner = task.inner_exclusive_access();
+    inner.memory_set.mmap_area(start_va, end_va, perm)
+}
+
+/// bridge: current task's memory_set munmap
+pub fn current_memory_set_munmap(start_va: crate::mm::VirtAddr, end_va: crate::mm::VirtAddr) -> bool {
+    let task = current_task().unwrap();
+    let mut inner = task.inner_exclusive_access();
+    inner.memory_set.munmap_area(start_va, end_va)
+}
